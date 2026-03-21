@@ -183,7 +183,7 @@ def eagle3_decoding(model, input_ids: torch.Tensor,
         model.ea_layer.reset_kv()
     
     with torch.no_grad():
-        while    < max_new_tokens:
+        while num_total_generated < max_new_tokens:
             cycle_start = time.time()
             if hasattr(model, "ea_layer") and hasattr(model.ea_layer, "reset_kv"):
                 model.ea_layer.reset_kv()
