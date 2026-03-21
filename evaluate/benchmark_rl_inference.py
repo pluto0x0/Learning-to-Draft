@@ -43,6 +43,8 @@ try:
 except ImportError:
     print("⚠️  Note: Eagle models not fully available; some features may be limited.")
 
+from datetime import datetime
+from tqdm.rich import tqdm
 
 def to_jsonable(obj: Any):
     if isinstance(obj, dict):
@@ -181,7 +183,7 @@ def eagle3_decoding(model, input_ids: torch.Tensor,
         model.ea_layer.reset_kv()
     
     with torch.no_grad():
-        while num_total_generated < max_new_tokens:
+        while    < max_new_tokens:
             cycle_start = time.time()
             if hasattr(model, "ea_layer") and hasattr(model.ea_layer, "reset_kv"):
                 model.ea_layer.reset_kv()
@@ -438,9 +440,9 @@ def main():
             "eagle3_rl": []
         }
         
-        for i, sample in enumerate(samples):
-            if i % max(1, len(samples) // 5) == 0:
-                print(f"  Progress: {i}/{len(samples)}")
+        for i, sample in tqdm(enumerate(samples), total=len(samples), desc=f"Evaluating {dataset_name}"):
+            # if i % max(1, len(samples) // 5) == 0:
+            #     print(f"  Progress: {i}/{len(samples)}")
             
             input_ids = sample["input_ids"].to(args.device)
             
@@ -506,7 +508,8 @@ def main():
         all_results[dataset_name] = dataset_results
     
     # Save detailed results
-    output_file = os.path.join(args.output_dir, "benchmark_results.json")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = os.path.join(args.output_dir, f"benchmark_results_{timestamp}.json")
     with open(output_file, "w") as f:
         # Convert to JSON-serializable format
         results_to_save = {}
