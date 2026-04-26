@@ -23,3 +23,4 @@ dependencies:
       - tqdm
       - wandb
       - tensorboard
+      - huggingface_hub[cli]
