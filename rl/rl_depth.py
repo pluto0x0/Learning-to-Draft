@@ -508,7 +508,7 @@ class SpeculativeDecodingEnv(gym.Env):
                         cid = _mask_index_list_local[cid - 1]
                     rid += 1
 
-            if logits_processor is not None:
+            if self.logits_processor is not None:
                 maxitem = _actual_total_tokens + 5
 
                 def custom_sort(lst):
