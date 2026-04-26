@@ -1,7 +1,7 @@
 /wandb/
 /checkpoints/ppo_speculative_tensorboard/
 /meta-llama/
-CLAUDE.md
+# CLAUDE.md
 *000.zip
 tensorboard/
 test.*
