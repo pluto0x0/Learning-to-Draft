@@ -68,6 +68,19 @@ class PhaseObsWrapper(gym.Wrapper):
         if starting_new_generation:
             self.detector.reset()
             self.shaper.reset()
+            # Qwen3's chat template (when thinking is enabled) puts <think> in
+            # the prompt itself, so the model never re-emits id 151667 during
+            # generation. Prime the detector from the prompt + first verified
+            # tokens so `in_think` starts True for reasoning episodes.
+            inner = self.env.unwrapped
+            cur_ids = getattr(inner, "current_input_ids", None)
+            if cur_ids is not None:
+                try:
+                    prompt_ids = cur_ids[0].tolist()
+                except Exception:
+                    prompt_ids = []
+                if prompt_ids:
+                    self.detector.prime_from_token_ids(prompt_ids)
         return self._extend_obs(obs), info
 
     def step(self, action) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:

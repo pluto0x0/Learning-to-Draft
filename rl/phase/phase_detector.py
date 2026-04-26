@@ -87,6 +87,39 @@ class PhaseDetector:
         self._stable_phase = PHASE_NON_THINK
         self._phase_run_len = 0
 
+    def prime_from_token_ids(self, token_ids: Iterable[int]) -> None:
+        """Initialise ``in_think`` from a *prompt* token id sequence.
+
+        Qwen3's chat template with ``add_generation_prompt=True`` writes
+        ``<think>`` (151667) into the prompt itself when thinking mode is
+        enabled, so the *generation* never re-emits the open tag. Without this
+        priming the detector stays in NON_THINK forever and `custom/phase` /
+        `custom/in_think` log as 0/False. Call this once per generation episode
+        with the prompt + any pre-decoded tokens.
+        """
+        if not self.qwen3_mode:
+            self.in_think = True  # non-Qwen3 fallback already treats all gen as in-think
+            return
+
+        last_open = -1
+        last_close = -1
+        for i, tid in enumerate(token_ids):
+            tid_int = int(tid)
+            if tid_int == QWEN3_THINK_OPEN_ID:
+                last_open = i
+            elif tid_int == QWEN3_THINK_CLOSE_ID:
+                last_close = i
+
+        if last_open == -1 and last_close == -1:
+            self.in_think = False
+        elif last_open > last_close:
+            # Most recent boundary was an open -> we are inside a think block.
+            self.in_think = True
+            self.steps_since_open = 0
+        else:
+            self.in_think = False
+            self.steps_since_close = 0
+
     def update(
         self,
         accepted_token_ids: Iterable[int],
