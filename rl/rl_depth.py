@@ -157,7 +157,11 @@ class SpeculativeDecodingEnv(gym.Env):
         
         self.current_input_ids = None
         self.logits_processor = logits_processor
-        self.d_max = 2  
+        self.d_max = 2
+        # Per-generation new-token budget. Phase-aware launchers may override
+        # this to allow longer reasoning episodes (Qwen3 thinking sections
+        # routinely exceed the original 256-token cap before emitting </think>).
+        self.max_new_tokens = 256
         self.finished_overall_generation = True
         self.action_space = spaces.Discrete(self.d_max)
         self.obs_size = (128)
@@ -588,7 +592,7 @@ class SpeculativeDecodingEnv(gym.Env):
                 self.finished_overall_generation = True
             if self.current_input_ids.shape[1] >= 1748 : 
                 self.finished_overall_generation = True
-            if self.new_token_count>=256:
+            if self.new_token_count >= self.max_new_tokens:
                 self.finished_overall_generation = True
         
         info = self._get_info()

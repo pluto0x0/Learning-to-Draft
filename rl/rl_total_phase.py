@@ -62,6 +62,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--qwen3_mode", action="store_true", default=True)
     p.add_argument("--no_qwen3_mode", dest="qwen3_mode", action="store_false")
     p.add_argument("--max_input_len", type=int, default=1748)
+    p.add_argument("--max_new_tokens", type=int, default=256,
+                   help="Per-generation new-token budget. Raise above 256 for "
+                        "Qwen3 / reasoning models so episodes can reach </think>. "
+                        "Bounded above by the inner env's KV cache (~1748 - input_len).")
     p.add_argument("--system_prompt", type=str, default="")
     p.add_argument("--wandb_project", type=str, default="speculative-decoding-rl-phase")
     return p
@@ -160,6 +164,7 @@ def main() -> None:
 
     _, SizeEnvBase = load_base_env_classes()
     env = SizeEnvBase(model, logits_processor=None, input_ids_list=input_ids_list)
+    env.max_new_tokens = args.max_new_tokens
     if args.use_phase:
         detector = PhaseDetector(tokenizer=tokenizer,
                                  qwen3_mode=args.qwen3_mode,

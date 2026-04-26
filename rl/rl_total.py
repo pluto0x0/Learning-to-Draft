@@ -165,6 +165,9 @@ class SpeculativeDecodingEnv(gym.Env):
         self.logits_processor = logits_processor
         self.k_max = 24  # Max number of tokens the agent can choose to verify
         self.max_draft_depth = 12 # Max random depth for generation
+        # Per-generation new-token budget. Phase-aware launchers may override
+        # this to allow longer reasoning episodes.
+        self.max_new_tokens = 256
 
         self.action_space = spaces.Discrete(self.k_max)
         self.depth_model = None
@@ -532,7 +535,7 @@ class SpeculativeDecodingEnv(gym.Env):
         if (stop_token_id != -1 and stop_token_id in generated_tokens) or \
            (self.model.tokenizer and self.model.tokenizer.eos_token_id in generated_tokens) or \
            (self.current_input_ids.shape[1] >= 1748) or \
-           (self.new_token_count >= 256):
+           (self.new_token_count >= self.max_new_tokens):
              self.finished_overall_generation = True
 
         info = self._get_info()

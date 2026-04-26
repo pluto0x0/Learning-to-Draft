@@ -27,6 +27,7 @@ reward_mode="cycle"     # cycle | blend | segment
 blend_alpha=0.5
 phase_smoothing=2
 qwen3_mode=1
+max_new_tokens=256
 
 usage() {
     cat <<EOF
@@ -60,6 +61,7 @@ while [[ $# -gt 0 ]]; do
         --phase_smoothing)    phase_smoothing="$2";    shift 2 ;;
         --qwen3_mode)         qwen3_mode=1;            shift   ;;
         --no_qwen3_mode)      qwen3_mode=0;            shift   ;;
+        --max_new_tokens)     max_new_tokens="$2";     shift 2 ;;
         -h|--help)            usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
     esac
@@ -95,4 +97,5 @@ python3 -m rl.rl_total_phase \
     --reward_mode ${reward_mode} \
     --blend_alpha ${blend_alpha} \
     --phase_smoothing ${phase_smoothing} \
+    --max_new_tokens ${max_new_tokens} \
     ${phase_flag} ${qwen3_flag}
