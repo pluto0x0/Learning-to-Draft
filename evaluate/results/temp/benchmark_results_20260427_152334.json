@@ -1,0 +1,117 @@
+{
+  "config": {
+    "base_model_path": "Qwen/Qwen3-8B",
+    "ea_model_path": "AngelSlim/Qwen3-8B_eagle3",
+    "size_model_path": "checkpoints/Qwen3-8B/size_phase/final.zip",
+    "depth_model_path": "checkpoints/Qwen3-8B/depth_phase/final.zip",
+    "dataset_names": [
+      "math"
+    ],
+    "num_samples": 3,
+    "temperature": 0.0,
+    "batch_size": 256,
+    "device": "cuda",
+    "gpu_name": "NVIDIA GeForce RTX 5090",
+    "use_phase": true,
+    "qwen3_mode": true,
+    "timestamp": "2026-04-27 15:22:34"
+  },
+  "math": {
+    "baseline": [
+      {
+        "tokens": 257,
+        "time": 12.546203374862671,
+        "throughput": 20.48428455375753
+      },
+      {
+        "tokens": 257,
+        "time": 12.012855291366577,
+        "throughput": 21.39374809456843
+      },
+      {
+        "tokens": 257,
+        "time": 12.010958671569824,
+        "throughput": 21.397126326670666
+      }
+    ],
+    "eagle3": [
+      {
+        "tokens_generated": 259,
+        "elapsed_time": 4.3934478759765625,
+        "throughput": 58.951419830322266,
+        "num_cycles": 59,
+        "avg_acceptance_len": 4.389830508474576,
+        "cycles_per_sec": 13.429088421103813
+      },
+      {
+        "tokens_generated": 258,
+        "elapsed_time": 3.6610324382781982,
+        "throughput": 70.471923828125,
+        "num_cycles": 53,
+        "avg_acceptance_len": 4.867924528301887,
+        "cycles_per_sec": 14.476790603069926
+      },
+      {
+        "tokens_generated": 262,
+        "elapsed_time": 4.022796154022217,
+        "throughput": 65.12882995605469,
+        "num_cycles": 59,
+        "avg_acceptance_len": 4.440677966101695,
+        "cycles_per_sec": 14.666415533138187
+      }
+    ],
+    "eagle3_rl": [
+      {
+        "tokens_generated": 258,
+        "elapsed_time": 3.8806447982788086,
+        "throughput": 66.48379674285864,
+        "num_cycles": 60,
+        "avg_acceptance_len": 4.3,
+        "cycles_per_sec": 15.461348079734568,
+        "avg_size_action": 19.0,
+        "avg_size_tokens": 200.0,
+        "avg_depth_stop": 3.9152542372881354,
+        "depth_policy_calls": 77.0,
+        "phase_frac_0": 0.03333333333333333,
+        "phase_frac_1": 0.03333333333333333,
+        "phase_frac_2": 0.38333333333333336,
+        "phase_frac_3": 0.16666666666666666,
+        "phase_frac_4": 0.38333333333333336
+      },
+      {
+        "tokens_generated": 256,
+        "elapsed_time": 3.3937032222747803,
+        "throughput": 75.43382058859132,
+        "num_cycles": 53,
+        "avg_acceptance_len": 4.830188679245283,
+        "cycles_per_sec": 15.617158168731795,
+        "avg_size_action": 19.0,
+        "avg_size_tokens": 200.0,
+        "avg_depth_stop": 4.153846153846154,
+        "depth_policy_calls": 72.0,
+        "phase_frac_0": 0.018867924528301886,
+        "phase_frac_1": 0.0,
+        "phase_frac_2": 0.5283018867924528,
+        "phase_frac_3": 0.3584905660377358,
+        "phase_frac_4": 0.09433962264150944
+      },
+      {
+        "tokens_generated": 256,
+        "elapsed_time": 3.542947292327881,
+        "throughput": 72.25622592646478,
+        "num_cycles": 56,
+        "avg_acceptance_len": 4.571428571428571,
+        "cycles_per_sec": 15.80604942141417,
+        "avg_size_action": 19.0,
+        "avg_size_tokens": 200.0,
+        "avg_depth_stop": 4.090909090909091,
+        "depth_policy_calls": 75.0,
+        "phase_frac_0": 0.017857142857142856,
+        "phase_frac_1": 0.0,
+        "phase_frac_2": 0.5892857142857143,
+        "phase_frac_3": 0.19642857142857142,
+        "phase_frac_4": 0.19642857142857142
+      }
+    ]
+  }
+}
