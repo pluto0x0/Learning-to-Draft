@@ -189,7 +189,7 @@ def _policy_predict_discrete(policy, obs_tensor: torch.Tensor) -> int:
 class EagleRLController:
     def __init__(self, model, current_input_ids: torch.Tensor, past_key_values,
                  past_key_values_data, current_length_data, logits_processor=None,
-                 depth_policy=None, size_policy=None):
+                 depth_policy=None, size_policy=None, phase_detector=None):
         self.model = model
         self.device = next(model.parameters()).device
         self.current_input_ids = current_input_ids
@@ -199,18 +199,58 @@ class EagleRLController:
         self.logits_processor = logits_processor
         self.depth_policy = depth_policy
         self.size_policy = size_policy
+        self.phase_detector = phase_detector
         self.ea_layer_top_k = model.ea_layer.top_k
         self.max_draft_depth = 12
-        self.obs_size = 1268
-        self.obs_size_depth = 128
+
+        # When phase-aware checkpoints are loaded, the policy expects a wider
+        # obs vector. Extend buffer sizes by PHASE_OBS_DIM (32) so the same
+        # controller serves both vanilla and phase-aware policies.
+        self._phase_dim = 0
+        if self.phase_detector is not None:
+            from rl.phase import PHASE_OBS_DIM
+            self._phase_dim = PHASE_OBS_DIM
+        self.obs_size = 1268 + self._phase_dim
+        self.obs_size_depth = 128 + self._phase_dim
+
         self.cu_scores_for_obs = None
         self.random_depth_this_step = 0
         self.new_token_count = 0
         self.size_actions = []
         self.depth_stop_points = []
         self.depth_policy_calls = 0
+        self.phase_history = []
+        self._cycle_t0 = None
         self.obs_buffer = torch.zeros(self.obs_size, dtype=torch.float32, device=self.device)
         self.obs_buffer_depth = torch.zeros(self.obs_size_depth, dtype=torch.float32, device=self.device)
+
+        if self.phase_detector is not None:
+            try:
+                prompt_ids = self.current_input_ids[0].tolist()
+            except Exception:
+                prompt_ids = []
+            if prompt_ids:
+                self.phase_detector.prime_from_token_ids(prompt_ids)
+
+    def _append_phase_features(self, buffer: torch.Tensor, base_dim: int) -> None:
+        if self.phase_detector is None or self._phase_dim == 0:
+            return
+        feats_np = self.phase_detector.get_features()
+        feats = torch.from_numpy(feats_np).to(self.device, dtype=buffer.dtype)
+        buffer[base_dim: base_dim + self._phase_dim] = feats
+
+    def _phase_update_after_verify(self, accepted_token_ids, accept_len: int) -> None:
+        if self.phase_detector is None:
+            return
+        cycle_time = 0.0
+        if self._cycle_t0 is not None:
+            cycle_time = max(0.0, time.perf_counter() - self._cycle_t0)
+        try:
+            ids = list(accepted_token_ids)
+        except Exception:
+            ids = []
+        self.phase_detector.update(ids, float(accept_len), cycle_time)
+        self.phase_history.append(int(self.phase_detector.current_phase()))
 
     def _get_obs_depth(self) -> torch.Tensor:
         self.obs_buffer_depth.zero_()
@@ -219,6 +259,7 @@ class EagleRLController:
             self.obs_buffer_depth[0: scores.numel()] = scores
         self.obs_buffer_depth[100:114].fill_(self.current_input_ids.shape[1] / 1000.0)
         self.obs_buffer_depth[114:128].fill_(self.cnet_step / 10.0)
+        self._append_phase_features(self.obs_buffer_depth, base_dim=128)
         return self.obs_buffer_depth
 
     def _get_obs(self) -> torch.Tensor:
@@ -227,9 +268,11 @@ class EagleRLController:
         self.obs_buffer[0: scores.numel()] = scores
         self.obs_buffer[1210:1239].fill_(self.current_input_ids.shape[1] / 1000.0)
         self.obs_buffer[1239:1268].fill_(self.cnet_step / 10.0)
+        self._append_phase_features(self.obs_buffer, base_dim=1268)
         return self.obs_buffer
 
     def bootstrap(self) -> int:
+        self._cycle_t0 = time.perf_counter()
         draft_tokens, retrieve_indices, tree_mask, tree_position_ids, _, _, _ = initialize_tree(
             self.current_input_ids, self.model, self.past_key_values, self.logits_processor
         )
@@ -268,6 +311,7 @@ class EagleRLController:
         self.new_token_count += accept_length + 1
         self.accepted_hidden_state_base_for_next_topk = accepted_hidden_state_base
         self.next_token_sampled_for_next_topk = next_token_sampled
+        self._phase_update_after_verify(accepted_tokens.tolist(), accept_length + 1)
         return int(accept_length + 1)
 
     def _prepare_for_drafting(self, accepted_hidden_state_base, next_token_sampled):
@@ -445,6 +489,7 @@ class EagleRLController:
         return finalized_draft_tokens, finalized_tree_mask, finalized_tree_position_ids, finalized_retrieve_indices
 
     def run_cycle(self) -> int:
+        self._cycle_t0 = time.perf_counter()
         self._prepare_for_drafting(
             self.accepted_hidden_state_base_for_next_topk,
             self.next_token_sampled_for_next_topk,
@@ -496,18 +541,26 @@ class EagleRLController:
         self.accepted_hidden_state_base_for_next_topk = retrieve_hidden_state_new[:, best_candidate_idx, :accept_length + 1]
         self.next_token_sampled_for_next_topk = torch.argmax(sample_p).unsqueeze(0).unsqueeze(0)
         self.new_token_count += accept_length + 1
+        self._phase_update_after_verify(accepted_tokens.tolist(), accept_length + 1)
         return int(accept_length + 1)
 
     def get_stats(self) -> Dict[str, float]:
         avg_size_action = float(np.mean(self.size_actions)) if self.size_actions else 0.0
         avg_size_tokens = float(np.mean([(action + 1) * 10 for action in self.size_actions])) if self.size_actions else 0.0
         avg_depth_stop = float(np.mean(self.depth_stop_points)) if self.depth_stop_points else 0.0
-        return {
+        stats = {
             "avg_size_action": avg_size_action,
             "avg_size_tokens": avg_size_tokens,
             "avg_depth_stop": avg_depth_stop,
             "depth_policy_calls": float(self.depth_policy_calls),
         }
+        if self.phase_history:
+            from rl.phase import NUM_PHASES
+            counts = np.bincount(self.phase_history, minlength=NUM_PHASES).astype(float)
+            total = counts.sum()
+            for i in range(NUM_PHASES):
+                stats[f"phase_frac_{i}"] = float(counts[i] / total) if total > 0 else 0.0
+        return stats
 
 
 def baseline_decoding(model, input_ids: torch.Tensor, max_new_tokens: int = 256,
@@ -578,7 +631,7 @@ def eagle3_decoding(model, input_ids: torch.Tensor,
 def eagle3_rl_decoding(model, input_ids: torch.Tensor,
                        size_policy=None, depth_policy=None,
                        max_new_tokens: int = 256, temperature: float = 0.0,
-                       logits_processor=None) -> Dict:
+                       logits_processor=None, phase_detector=None) -> Dict:
     """
     Eagle3 with learned RL policies for dynamic depth and verification size.
     This mirrors the reset/step logic in rl_total.py.
@@ -592,6 +645,9 @@ def eagle3_rl_decoding(model, input_ids: torch.Tensor,
     total_cycles = 0
     total_accepted = 0
 
+    if phase_detector is not None:
+        phase_detector.reset()
+
     past_key_values, past_key_values_data, current_length_data = _init_kv_cache(model)
     controller = EagleRLController(
         model=model,
@@ -602,6 +658,7 @@ def eagle3_rl_decoding(model, input_ids: torch.Tensor,
         logits_processor=logits_processor,
         depth_policy=depth_policy,
         size_policy=size_policy,
+        phase_detector=phase_detector,
     )
 
     with torch.no_grad():
@@ -649,6 +706,13 @@ def main():
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--output_dir", type=str, default="./evaluate/results")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--use_phase", action="store_true",
+                        help="Enable phase-aware obs extension (required for "
+                             "checkpoints trained with --use_phase).")
+    parser.add_argument("--qwen3_mode", action="store_true", default=True,
+                        help="Use Qwen3 <think>/</think> token IDs for phase gating.")
+    parser.add_argument("--no_qwen3_mode", dest="qwen3_mode", action="store_false")
+    parser.add_argument("--phase_smoothing", type=int, default=2)
 
     args = parser.parse_args()
 
@@ -699,11 +763,15 @@ def main():
     model_name = args.base_model_path.split("/")[-1]
 
     from pprint import pprint
+    # Phase-aware checkpoints live under <model>/{depth_phase,size_phase}; default
+    # to those when --use_phase is requested so the same launcher works for both.
+    _size_subdir = "size_phase" if args.use_phase else "size"
+    _depth_subdir = "depth_phase" if args.use_phase else "depth"
     if args.size_model_path == "":
-        args.size_model_path = f"checkpoints/{model_name}/size/final.zip"
+        args.size_model_path = f"checkpoints/{model_name}/{_size_subdir}/final.zip"
         print(f"  ℹ️ No size model path provided, defaulting to {args.size_model_path}")
     if args.depth_model_path == "":
-        args.depth_model_path = f"checkpoints/{model_name}/depth/final.zip"
+        args.depth_model_path = f"checkpoints/{model_name}/{_depth_subdir}/final.zip"
         print(f"  ℹ️ No depth model path provided, defaulting to {args.depth_model_path}")
     if args.dataset_names == []:
         # list all subdirectories in data_dir as dataset names
@@ -730,6 +798,16 @@ def main():
         except Exception as e:
             print(f"  ⚠️  Could not load depth policy: {e}")
 
+    phase_detector = None
+    if args.use_phase:
+        from rl.phase import PhaseDetector
+        phase_detector = PhaseDetector(
+            tokenizer=tokenizer,
+            qwen3_mode=args.qwen3_mode,
+            phase_smoothing=args.phase_smoothing,
+        )
+        print(f"  ℹ️  Phase-aware mode enabled (qwen3_mode={args.qwen3_mode}).")
+
     print("\n" + "=" * 80)
     print("🔬 Starting benchmark...")
     print("=" * 80)
@@ -746,6 +824,8 @@ def main():
             "batch_size": args.batch_size,
             "device": args.device,
             "gpu_name": gpu_name,
+            "use_phase": args.use_phase,
+            "qwen3_mode": args.qwen3_mode if args.use_phase else None,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
     }
@@ -786,6 +866,7 @@ def main():
                         input_ids,
                         size_policy=size_policy,
                         depth_policy=depth_policy,
+                        phase_detector=phase_detector,
                         temperature=args.temperature,
                     )
                     dataset_results["eagle3_rl"].append(res)
